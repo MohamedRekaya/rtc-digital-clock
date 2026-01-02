@@ -1,0 +1,13 @@
+Debug/
+*.launch
+.metadata/
+.settings/
+*.o
+*.d
+*.elf
+*.bin
+*.hex
+*.map
+*.cproject
+*.project
+*.ld
