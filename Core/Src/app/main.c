@@ -1,105 +1,101 @@
+/**
+  ******************************************************************************
+  * @file    main.c
+  * @brief   Test program using proper RTC hardware flags
+  ******************************************************************************
+  */
 #include "stm32f4xx.h"
+#include "rtc.h"
 #include "led.h"
-#include "button.h"
 #include "systick.h"
-#include "pattern_manager.h"
-#include "sleep_manager.h"
 
 int main(void) {
-    /* 1. Initialize system (ORDER MATTERS!) */
-    systick_init();             /* Must be first for timing */
-    led_init();                 /* Initialize LEDs */
-    button_init();              /* Initialize button with EXTI */
-    pattern_manager_init();     /* Initialize pattern manager */
-    sleep_manager_init();       /* Initialize sleep manager */
+    systick_init();
+    led_init();
 
-    /* 2. Enable global interrupts */
-    __enable_irq();
+    /* Startup blink */
+    led_all_on();
+    systick_delay_ms(300);
+    led_all_off();
+    systick_delay_ms(300);
 
-    /* 3. Startup animation */
-    for (int i = 0; i < 3; i++) {
-        led_all_on();
-        for (int j = 0; j < 200000; j++);
-        led_all_off();
-        for (int j = 0; j < 200000; j++);
+    /* Check RTC status before initialization */
+    rtc_status_t status = rtc_get_status();
+
+    /* Show status on LEDs */
+    switch(status) {
+        case RTC_STATUS_NOT_INITIALIZED:
+            led_on(LED_RED);
+            break;
+        case RTC_STATUS_INIT_MODE:
+            led_on(LED_ORANGE);
+            break;
+        case RTC_STATUS_RUNNING:
+            led_on(LED_GREEN);
+            break;
+        default:
+            led_on(LED_BLUE);
+            break;
+    }
+    systick_delay_ms(1000);
+    led_all_off();
+
+    /* Initialize RTC (only if not already initialized) */
+    if (!rtc_init()) {
+        /* RTC init failed - blink red fast */
+        while(1) {
+            led_on(LED_RED);
+            systick_delay_ms(100);
+            led_off(LED_RED);
+            systick_delay_ms(100);
+        }
     }
 
-    /* 4. Start with first pattern */
-    pattern_manager_set_pattern(PATTERN_SOLID);
-    pattern_manager_start();
+    /* RTC initialized - blink green 3 times */
+    for(int i = 0; i < 3; i++) {
+        led_on(LED_GREEN);
+        systick_delay_ms(200);
+        led_off(LED_GREEN);
+        systick_delay_ms(200);
+    }
 
-    /* 5. Main superloop */
-    while (1) {
-        /* Update button state machine */
-        button_update();
+    /* Set time if not already set */
+    rtc_time_t time;
+    rtc_get_time(&time);
 
-        /* Check for wakeup request */
-        static bool was_sleeping = false;
-        if (sleep_manager_is_sleeping() && !was_sleeping) {
-            // System just entered sleep
-            was_sleeping = true;
+    /* If time is 00:00:00, set it to 12:00:00 */
+    if(time.hours == 0 && time.minutes == 0 && time.seconds == 0) {
+        time.hours = 12;
+        time.minutes = 0;
+        time.seconds = 0;
+        rtc_set_time(&time);
 
-            // Sleep indication (slow blink while sleeping)
-            while (sleep_manager_is_sleeping()) {
-                // Slow blink Green LED (1Hz) to show sleep state
-                static uint32_t sleep_blink_timer = 0;
-                if (systick_delay_elapsed(sleep_blink_timer, 500)) {
-                    led_toggle(LED_GREEN);
-                    sleep_blink_timer = systick_get_ticks();
-                }
+        /* Flash blue to show time set */
+        led_on(LED_BLUE);
+        systick_delay_ms(300);
+        led_off(LED_BLUE);
+    }
 
-                // Check for wakeup
-                button_update();
-            }
+    /* Main loop - show seconds on LEDs */
+    uint8_t last_second = 0xFF;
 
-            was_sleeping = false;
-            continue;  // Restart loop after wakeup
+    while(1) {
+        rtc_get_time(&time);
+
+        if(time.seconds != last_second) {
+            last_second = time.seconds;
+
+            /* Toggle green LED every second */
+            led_toggle(LED_GREEN);
+
+            /* Show seconds in binary on other LEDs */
+            led_off(LED_RED | LED_ORANGE | LED_BLUE);
+
+            if(time.seconds & 0x01) led_on(LED_RED);
+            if(time.seconds & 0x02) led_on(LED_ORANGE);
+            if(time.seconds & 0x04) led_on(LED_BLUE);
         }
 
-        /* Handle button events (only when awake) */
-        button_event_t event = button_get_event();
-
-        switch (event) {
-            case BUTTON_EVENT_PRESSED:
-                /* Short press: Toggle pattern pause/resume */
-                if (pattern_manager_get_state() == PATTERN_STATE_RUNNING) {
-                    pattern_manager_pause();
-                    led_set_pattern(0b1010);  // Show paused state
-                } else {
-                    pattern_manager_resume();
-                }
-                break;
-
-            case BUTTON_EVENT_LONG_PRESS:
-                /* Long press: Next pattern */
-                pattern_manager_next();
-
-                /* Visual feedback */
-                led_all_on();
-                for (volatile int i = 0; i < 20000; i++);
-                led_all_off();
-                break;
-
-            case BUTTON_EVENT_DOUBLE_CLICK:
-                /* Double click: Enter sleep mode */
-                sleep_manager_enter();
-                break;
-
-            case BUTTON_EVENT_RELEASED:
-                /* Release events can be used for additional features */
-                break;
-
-            default:
-                /* No event */
-                break;
-        }
-
-        /* Update pattern (when not sleeping) */
-        if (!sleep_manager_is_sleeping()) {
-            pattern_manager_update();
-        }
-
-        /* Small delay to reduce CPU usage */
-        for (volatile int i = 0; i < 1000; i++);
+        systick_delay_ms(10);
     }
 }
