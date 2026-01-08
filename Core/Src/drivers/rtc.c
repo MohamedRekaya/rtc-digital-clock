@@ -98,13 +98,9 @@ bool rtc_init(void) {
         }
     }
 
-    /* Step 6: Wait for registers to sync */
-    if (!rtc_wait_for_sync(RTC_SYNC_TIMEOUT)) {
 
-        return false;
-    }
 
-    /* Step 7: If date not set (INITS = 0), set default date */
+    /* Step 6: If date not set (INITS = 0), set default date */
     if (!RTC_IS_INITIALIZED()) {
         /* Set default date: 2024-01-01 Monday */
         rtc_date_t default_date = {
