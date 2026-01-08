@@ -2,7 +2,7 @@
   ******************************************************************************
   * @file    rtc_config.h
   * @brief   RTC Configuration for STM32F407
-  * @note    Using proper RTC flags instead of magic numbers
+  * @note    To use the RTC_CLOCK_SOURCE_LSE you need to provide an external 32k clock
   ******************************************************************************
   */
 
@@ -50,7 +50,7 @@
 /*===================================================================
   Timeout Values (in cycles)
   ===================================================================*/
-#define LSE_STARTUP_TIMEOUT      2000000     /* ~2 seconds */
+#define LSE_STARTUP_TIMEOUT      3000000     /* ~2 seconds */
 #define LSI_STARTUP_TIMEOUT      100000      /* ~100 ms */
 #define RTC_INIT_TIMEOUT         10000
 #define RTC_SYNC_TIMEOUT         10000

@@ -42,48 +42,7 @@ typedef struct {
     uint8_t weekday;    /* 1=Monday, 7=Sunday */
 } rtc_date_t;
 
-/**
-  * @brief  Alarm configuration
-  */
-typedef struct {
-    uint8_t hour;       /* 0-23 */
-    uint8_t minute;     /* 0-59 */
-    uint8_t second;     /* 0-59 */
-    bool enabled;       /* Alarm enabled */
-    uint8_t mask;       /* Alarm mask bits:
-                         * bit0: Seconds match
-                         * bit1: Minutes match
-                         * bit2: Hours match
-                         * bit3: Date/Weekday match
-                         */
-    bool weekday_match; /* true: match weekday, false: match date */
-    uint8_t weekday;    /* 1-7 when weekday_match = true */
-} rtc_alarm_t;
 
-/**
-  * @brief  RTC status using hardware flags
-  */
-typedef enum {
-    RTC_STATUS_UNKNOWN = 0,         /* Can't determine status */
-    RTC_STATUS_NOT_INITIALIZED,     /* Backup domain not accessible */
-    RTC_STATUS_INIT_MODE,           /* INITF flag set (in init mode) */
-    RTC_STATUS_RUNNING,             /* RSF flag set (registers synced) */
-    RTC_STATUS_ERROR                /* Timeout or other error */
-} rtc_status_t;
-
-/**
-  * @brief  RTC error codes
-  */
-typedef enum {
-    RTC_ERROR_NONE = 0,
-    RTC_ERROR_CLOCK_FAILED,
-    RTC_ERROR_INIT_TIMEOUT,
-    RTC_ERROR_SYNC_TIMEOUT,
-    RTC_ERROR_INVALID_TIME,
-    RTC_ERROR_INVALID_DATE,
-    RTC_ERROR_BACKUP_DOMAIN,
-    RTC_ERROR_ALREADY_RUNNING
-} rtc_error_t;
 
 /*===================================================================
   Public Functions
@@ -98,18 +57,7 @@ typedef enum {
   */
 bool rtc_init(void);
 
-/**
-  * @brief  Force re-initialization of RTC (even if already running)
-  * @retval true: Success, false: Failure
-  * @note   Use with caution - resets RTC time
-  */
-bool rtc_force_init(void);
 
-/**
-  * @brief  Get current RTC status using hardware flags
-  * @retval RTC status based on INITS, RSF, and INITF flags
-  */
-rtc_status_t rtc_get_status(void);
 
 /**
   * @brief  Check if RTC is running (INITS flag = 1)
@@ -117,13 +65,7 @@ rtc_status_t rtc_get_status(void);
   */
 bool rtc_is_clock_initialized(void);
 
-/**
-  * @brief  Get last error code
-  * @retval Error code
-  */
-rtc_error_t rtc_get_last_error(void);
 
-/* Time/Date Functions ---------------------------------------------*/
 
 /**
   * @brief  Set current time

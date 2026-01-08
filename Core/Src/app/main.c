@@ -19,24 +19,7 @@ int main(void) {
     led_all_off();
     systick_delay_ms(300);
 
-    /* Check RTC status before initialization */
-    rtc_status_t status = rtc_get_status();
 
-    /* Show status on LEDs */
-    switch(status) {
-        case RTC_STATUS_NOT_INITIALIZED:
-            led_on(LED_RED);
-            break;
-        case RTC_STATUS_INIT_MODE:
-            led_on(LED_ORANGE);
-            break;
-        case RTC_STATUS_RUNNING:
-            led_on(LED_GREEN);
-            break;
-        default:
-            led_on(LED_BLUE);
-            break;
-    }
     systick_delay_ms(1000);
     led_all_off();
 

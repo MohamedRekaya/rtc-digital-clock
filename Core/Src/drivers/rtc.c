@@ -1,8 +1,8 @@
 /**
   ******************************************************************************
   * @file    rtc.c
-  * @brief   Professional RTC Driver - Using proper hardware flags
-  * @note    Uses INITS flag to check if RTC is already initialized
+  * @brief   STM32F4xx RTC Driver - Using proper hardware flags
+  * @note    Tested on STM32F407 MCU(Discovery Board) and STM32F401 MCU(Nucleo Board)
   ******************************************************************************
   */
 
@@ -12,27 +12,23 @@
 
 /* Private Macros ------------------------------------------------------------*/
 
-/* Backup register access macros */
-#define BKP_REG(n)      *(&(RTC->BKP0R) + (n))
-
 /* RTC Status Flags */
 #define RTC_IS_INITIALIZED()     ((RTC->ISR & RTC_ISR_INITS) != 0)
 #define RTC_IS_IN_INIT_MODE()    ((RTC->ISR & RTC_ISR_INITF) != 0)
 #define RTC_IS_SYNCHRONIZED()    ((RTC->ISR & RTC_ISR_RSF) != 0)
 
-/* Private Variables ---------------------------------------------------------*/
 
-static rtc_error_t last_error = RTC_ERROR_NONE;
 
 /* Private Function Prototypes -----------------------------------------------*/
 
 static bool backup_domain_init(void);
+static void backup_domain_reset(void);
 static bool clock_source_init(void);
 static bool rtc_clock_init(void);
 static void rtc_write_protection_disable(void);
 static void rtc_write_protection_enable(void);
-static bool rtc_enter_init_mode_safe(void);
-static bool rtc_exit_init_mode_safe(void);
+static bool rtc_enter_init_mode(void);
+static bool rtc_exit_init_mode(void);
 static uint8_t bcd_to_bin(uint8_t bcd);
 static uint8_t bin_to_bcd(uint8_t bin);
 static bool validate_time(const rtc_time_t* time);
@@ -47,24 +43,23 @@ static bool rtc_wait_for_sync(uint32_t timeout);
   * @retval true: Success or already running, false: Failure
   */
 bool rtc_init(void) {
-    /* Reset error */
-    last_error = RTC_ERROR_NONE;
+
 
     /* Step 1: Initialize backup domain */
     if (!backup_domain_init()) {
-        last_error = RTC_ERROR_BACKUP_DOMAIN;
         return false;
     }
 
+    /* RESET BACKUP DOMAIN */
+    backup_domain_reset();
+
     /* Step 2: Initialize clock source */
     if (!clock_source_init()) {
-        last_error = RTC_ERROR_CLOCK_FAILED;
         return false;
     }
 
     /* Step 3: Initialize RTC clock */
     if (!rtc_clock_init()) {
-        last_error = RTC_ERROR_CLOCK_FAILED;
         return false;
     }
 
@@ -78,8 +73,7 @@ bool rtc_init(void) {
     /* Step 5: If not initialized (INITS = 0), configure prescalers */
     if (!RTC_IS_INITIALIZED()) {
         /* Enter initialization mode */
-        if (!rtc_enter_init_mode_safe()) {
-            last_error = RTC_ERROR_INIT_TIMEOUT;
+        if (!rtc_enter_init_mode()) {
             return false;
         }
 
@@ -98,15 +92,15 @@ bool rtc_init(void) {
         #endif
 
         /* Exit initialization mode */
-        if (!rtc_exit_init_mode_safe()) {
-            last_error = RTC_ERROR_INIT_TIMEOUT;
+        if (!rtc_exit_init_mode()) {
+
             return false;
         }
     }
 
     /* Step 6: Wait for registers to sync */
     if (!rtc_wait_for_sync(RTC_SYNC_TIMEOUT)) {
-        last_error = RTC_ERROR_SYNC_TIMEOUT;
+
         return false;
     }
 
@@ -140,133 +134,24 @@ bool rtc_init(void) {
 }
 
 /**
-  * @brief  Force re-initialization of RTC
-  * @retval true: Success, false: Failure
-  */
-bool rtc_force_init(void) {
-    /* Reset error */
-    last_error = RTC_ERROR_NONE;
-
-    /* Initialize backup domain */
-    if (!backup_domain_init()) {
-        last_error = RTC_ERROR_BACKUP_DOMAIN;
-        return false;
-    }
-
-    /* Initialize clock source */
-    if (!clock_source_init()) {
-        last_error = RTC_ERROR_CLOCK_FAILED;
-        return false;
-    }
-
-    /* Re-initialize RTC clock */
-    if (!rtc_clock_init()) {
-        last_error = RTC_ERROR_CLOCK_FAILED;
-        return false;
-    }
-
-    /* Enter initialization mode */
-    if (!rtc_enter_init_mode_safe()) {
-        last_error = RTC_ERROR_INIT_TIMEOUT;
-        return false;
-    }
-
-    /* Configure prescalers */
-    #if RTC_SOURCE == RTC_CLOCK_SOURCE_LSI
-        RTC->PRER = (RTC_LSI_ASYNC_PRESCALER << 16) | RTC_LSI_SYNC_PRESCALER;
-    #elif RTC_SOURCE == RTC_CLOCK_SOURCE_LSE
-        RTC->PRER = (RTC_LSE_ASYNC_PRESCALER << 16) | RTC_LSE_SYNC_PRESCALER;
-    #endif
-
-    /* Configure hour format */
-    #if RTC_TIME_FORMAT == RTC_HOUR_FORMAT_24
-        RTC->CR &= ~RTC_CR_FMT;
-    #else
-        RTC->CR |= RTC_CR_FMT;
-    #endif
-
-    /* Exit initialization mode */
-    if (!rtc_exit_init_mode_safe()) {
-        last_error = RTC_ERROR_INIT_TIMEOUT;
-        return false;
-    }
-
-    /* Wait for sync */
-    if (!rtc_wait_for_sync(RTC_SYNC_TIMEOUT)) {
-        last_error = RTC_ERROR_SYNC_TIMEOUT;
-        return false;
-    }
-
-    return true;
-}
-
-/**
-  * @brief  Get current RTC status using hardware flags
-  * @retval RTC status
-  */
-rtc_status_t rtc_get_status(void) {
-    /* Check if backup domain is accessible */
-    if ((PWR->CR & PWR_CR_DBP) == 0) {
-        return RTC_STATUS_NOT_INITIALIZED;
-    }
-
-    /* Check INITS flag - RTC initialization status */
-    if (!RTC_IS_INITIALIZED()) {
-        return RTC_STATUS_NOT_INITIALIZED;
-    }
-
-    /* Check INITF flag - initialization mode */
-    if (RTC_IS_IN_INIT_MODE()) {
-        return RTC_STATUS_INIT_MODE;
-    }
-
-    /* Check RSF flag - registers synchronized */
-    if (RTC_IS_SYNCHRONIZED()) {
-        return RTC_STATUS_RUNNING;
-    }
-
-    return RTC_STATUS_ERROR;
-}
-
-/**
-  * @brief  Check if RTC clock is initialized (INITS flag)
-  * @retval true: RTC is initialized, false: Not initialized
-  */
-bool rtc_is_clock_initialized(void) {
-    return RTC_IS_INITIALIZED();
-}
-
-/**
-  * @brief  Get last error
-  */
-rtc_error_t rtc_get_last_error(void) {
-    return last_error;
-}
-
-/**
   * @brief  Set current time
   */
 bool rtc_set_time(const rtc_time_t* time) {
     if (!validate_time(time)) {
-        last_error = RTC_ERROR_INVALID_TIME;
+
         return false;
     }
 
-    /* Check if RTC is initialized
-    if (!rtc_is_clock_initialized()) {
-        last_error = RTC_ERROR_NONE;
-        return false;
-    }*/
 
     /* Wait for sync */
     if (!rtc_wait_for_sync(RTC_SYNC_TIMEOUT)) {
-        last_error = RTC_ERROR_SYNC_TIMEOUT;
+
         return false;
     }
 
     /* Enter initialization mode */
-    if (!rtc_enter_init_mode_safe()) {
-        last_error = RTC_ERROR_INIT_TIMEOUT;
+    if (!rtc_enter_init_mode()) {
+
         return false;
     }
 
@@ -289,8 +174,8 @@ bool rtc_set_time(const rtc_time_t* time) {
     RTC->TR = tr;
 
     /* Exit initialization mode */
-    if (!rtc_exit_init_mode_safe()) {
-        last_error = RTC_ERROR_INIT_TIMEOUT;
+    if (!rtc_exit_init_mode()) {
+
         return false;
     }
 
@@ -301,7 +186,7 @@ bool rtc_set_time(const rtc_time_t* time) {
   * @brief  Get current time
   */
 void rtc_get_time(rtc_time_t* time) {
-    if (time == NULL || !rtc_is_clock_initialized()) {
+    if (time == NULL || !RTC_IS_INITIALIZED()) {
         return;
     }
 
@@ -335,7 +220,6 @@ void rtc_get_time(rtc_time_t* time) {
   */
 bool rtc_set_date(const rtc_date_t* date) {
     if (!validate_date(date)) {
-        last_error = RTC_ERROR_INVALID_DATE;
         return false;
     }
 
@@ -348,13 +232,11 @@ bool rtc_set_date(const rtc_date_t* date) {
 
     /* Wait for sync */
     if (!rtc_wait_for_sync(RTC_SYNC_TIMEOUT)) {
-        last_error = RTC_ERROR_SYNC_TIMEOUT;
         return false;
     }
 
     /* Enter initialization mode */
-    if (!rtc_enter_init_mode_safe()) {
-        last_error = RTC_ERROR_INIT_TIMEOUT;
+    if (!rtc_enter_init_mode()) {
         return false;
     }
 
@@ -368,8 +250,7 @@ bool rtc_set_date(const rtc_date_t* date) {
     RTC->DR = dr;
 
     /* Exit initialization mode */
-    if (!rtc_exit_init_mode_safe()) {
-        last_error = RTC_ERROR_INIT_TIMEOUT;
+    if (!rtc_exit_init_mode()) {
         return false;
     }
 
@@ -380,7 +261,7 @@ bool rtc_set_date(const rtc_date_t* date) {
   * @brief  Get current date
   */
 void rtc_get_date(rtc_date_t* date) {
-    if (date == NULL || !rtc_is_clock_initialized()) {
+    if (date == NULL || !RTC_IS_INITIALIZED() ) {
         return;
     }
 
@@ -400,12 +281,14 @@ void rtc_get_date(rtc_date_t* date) {
   * @brief  Wait for RTC registers synchronization
   */
 bool rtc_wait_for_sync(uint32_t timeout) {
+	RTC->ISR &= ~RTC_ISR_RSF;  /* Clear flag for next read */
+
     while (!RTC_IS_SYNCHRONIZED()) {
         if (timeout-- == 0) {
             return false;
         }
     }
-    RTC->ISR &= ~RTC_ISR_RSF;  /* Clear flag for next read */
+
     return true;
 }
 
@@ -433,6 +316,20 @@ static bool backup_domain_init(void) {
 }
 
 /**
+  * @brief  Reset backup domain (sets/clears BDRST bit)
+  * @note   Minimal version - assumes backup domain is already accessible
+  */
+static void backup_domain_reset(void) {
+    RCC->BDCR |= RCC_BDCR_BDRST;    /* Set reset */
+    for(volatile int i=0; i<1000; i++);  /* Short delay */
+    RCC->BDCR &= ~RCC_BDCR_BDRST;   /* Clear reset */
+    for(volatile int i=0; i<1000; i++);  /* Recovery delay */
+}
+
+/**
+  * @brief  Initialize clock source
+  */
+/**
   * @brief  Initialize clock source
   */
 static bool clock_source_init(void) {
@@ -450,15 +347,37 @@ static bool clock_source_init(void) {
         return true;
 
     #elif RTC_SOURCE == RTC_CLOCK_SOURCE_LSE
+        /* First disable LSE if it was enabled */
+        RCC->BDCR &= ~RCC_BDCR_LSEON;
+
+
+
+        /* Clear LSE bypass (using crystal, not external clock) */
+        RCC->BDCR &= ~RCC_BDCR_LSEBYP;
+
         /* Enable LSE */
         RCC->BDCR |= RCC_BDCR_LSEON;
+
+        /* IMPORTANT: Add a small delay before checking LSERDY */
+        for (volatile uint32_t i = 0; i < 10000; i++);
 
         /* Wait for LSE ready */
         uint32_t timeout = LSE_STARTUP_TIMEOUT;
         while ((RCC->BDCR & RCC_BDCR_LSERDY) == 0) {
             if (timeout-- == 0) {
+                /* Try with bypass mode (external clock) if crystal doesn't work */
                 RCC->BDCR &= ~RCC_BDCR_LSEON;
-                return false;
+                for (volatile uint32_t i = 0; i < 1000; i++);
+                RCC->BDCR |= RCC_BDCR_LSEBYP;  /* Enable bypass */
+                RCC->BDCR |= RCC_BDCR_LSEON;
+
+                timeout = LSE_STARTUP_TIMEOUT;
+                while ((RCC->BDCR & RCC_BDCR_LSERDY) == 0) {
+                    if (timeout-- == 0) {
+                        RCC->BDCR &= ~RCC_BDCR_LSEON;
+                        return false;
+                    }
+                }
             }
         }
         return true;
@@ -472,6 +391,8 @@ static bool clock_source_init(void) {
   * @brief  Initialize RTC clock
   */
 static bool rtc_clock_init(void) {
+
+
     /* Select RTC clock source */
     RCC->BDCR &= ~RCC_BDCR_RTCSEL;
 
@@ -508,7 +429,7 @@ static void rtc_write_protection_enable(void) {
 /**
   * @brief  Enter initialization mode safely
   */
-static bool rtc_enter_init_mode_safe(void) {
+static bool rtc_enter_init_mode(void) {
     rtc_write_protection_disable();
 
     RTC->ISR |= RTC_ISR_INIT;
@@ -527,7 +448,7 @@ static bool rtc_enter_init_mode_safe(void) {
 /**
   * @brief  Exit initialization mode safely
   */
-static bool rtc_exit_init_mode_safe(void) {
+static bool rtc_exit_init_mode(void) {
     RTC->ISR &= ~RTC_ISR_INIT;
     rtc_write_protection_enable();
 
