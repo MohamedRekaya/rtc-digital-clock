@@ -42,6 +42,22 @@ typedef struct {
     uint8_t weekday;    /* 1=Monday, 7=Sunday */
 } rtc_date_t;
 
+/*===================================================================
+  Alarm Types
+  ===================================================================*/
+
+/**
+  * @brief  Alarm configuration structure
+  */
+typedef struct {
+    uint8_t hour;       /* 0-23 */
+    uint8_t minute;     /* 0-59 */
+    uint8_t second;     /* 0-59 */
+    uint8_t mask;       /* Alarm mask bits (see RTC_ALARM_MASK_xxx) */
+    uint8_t weekday;    /* 1-7: Match weekday (0 = ignore) */
+    bool enabled;       /* Alarm enabled flag */
+} rtc_alarm_t;
+
 
 
 /*===================================================================
@@ -93,7 +109,58 @@ bool rtc_set_date(const rtc_date_t* date);
   */
 void rtc_get_date(rtc_date_t* date);
 
-/* [Rest of the functions remain the same...] */
+/*===================================================================
+  Alarm Functions
+  ===================================================================*/
+
+#if RTC_ALARM_ENABLE
+
+/**
+  * @brief  Initialize RTC alarm interrupt system
+  * @retval true: Success, false: Failure
+  * @note   Must be called once before using alarms
+  */
+bool rtc_alarm_init(void);
+
+/**
+  * @brief  Set alarm A configuration
+  * @param  alarm: Pointer to alarm configuration
+  * @retval true: Success, false: Failure
+  */
+bool rtc_set_alarm_a(const rtc_alarm_t* alarm);
+
+/**
+  * @brief  Enable alarm A
+  */
+void rtc_alarm_a_enable(void);
+
+/**
+  * @brief  Disable alarm A
+  */
+void rtc_alarm_a_disable(void);
+
+/**
+  * @brief  Check if alarm A has triggered
+  * @retval true: Alarm triggered, false: Not triggered
+  */
+bool rtc_is_alarm_a_triggered(void);
+
+/**
+  * @brief  Clear alarm A trigger flag
+  */
+void rtc_clear_alarm_a(void);
+
+/**
+  * @brief  RTC Alarm interrupt handler (call from ISR)
+  */
+void rtc_alarm_irq_handler(void);
+
+/**
+  * @brief  Application alarm callback (weak, override in application)
+  */
+void rtc_alarm_callback(void);
+
+#endif /* RTC_ALARM_ENABLE */
 
 
 

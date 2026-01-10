@@ -8,6 +8,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "systick.h"
 #include "stm32f4xx.h"
+#include "board_config.h"
 
 /* Private typedef -----------------------------------------------------------*/
 
@@ -65,7 +66,7 @@ void systick_init(void) {
                     SysTick_CTRL_ENABLE_Msk;      /* Enable counter */
 
     /* Set medium priority (0 = highest, 15 = lowest on Cortex-M4) */
-    NVIC_SetPriority(SysTick_IRQn, (1UL << __NVIC_PRIO_BITS) - 1UL);
+    NVIC_SetPriority(SysTick_IRQn, SYSTICK_PRIORITY);
 }
 
 /**

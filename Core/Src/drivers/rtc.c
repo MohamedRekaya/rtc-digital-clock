@@ -497,4 +497,207 @@ static bool validate_date(const rtc_date_t* date) {
     return true;
 }
 
+#if RTC_ALARM_ENABLE
 
+/* Private alarm functions */
+static void rtc_alarm_exti_config(void);
+static void rtc_alarm_nvic_config(void);
+static bool rtc_wait_for_alarm_write(uint32_t timeout);
+
+/**
+  * @brief  Configure EXTI for RTC alarm
+  */
+static void rtc_alarm_exti_config(void) {
+    /* Enable EXTI line 17 (RTC Alarm) */
+    EXTI->IMR |= (1U << RTC_ALARM_EXTI_LINE);   /* Interrupt mask */
+    EXTI->RTSR |= (1U << RTC_ALARM_EXTI_LINE);  /* Rising trigger */
+
+    /* Clear any pending interrupt */
+    EXTI->PR |= (1U << RTC_ALARM_EXTI_LINE);
+}
+
+/**
+  * @brief  Configure NVIC for RTC alarm interrupt
+  */
+static void rtc_alarm_nvic_config(void) {
+    /* Clear any pending interrupt first */
+    NVIC_ClearPendingIRQ(RTC_ALARM_IRQn);
+
+    /* Set priority and enable */
+    NVIC_SetPriority(RTC_ALARM_IRQn, RTC_ALARM_IRQ_PRIORITY);
+    NVIC_EnableIRQ(RTC_ALARM_IRQn);
+}
+
+/**
+  * @brief  Wait for alarm register to be writable
+  */
+static bool rtc_wait_for_alarm_write(uint32_t timeout) {
+    while ((RTC->ISR & RTC_ISR_ALRAWF) == 0) {
+        if (timeout-- == 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
+  * @brief  Initialize RTC alarm system
+  */
+bool rtc_alarm_init(void) {
+    /* Check if alarms are enabled in config */
+    #if RTC_ALARM_A_ENABLE == 0
+        return false;
+    #endif
+
+    /* Ensure RTC is initialized first */
+    if (!RTC_IS_INITIALIZED()) {
+        return false;
+    }
+
+    /* Disable write protection */
+    rtc_write_protection_disable();
+
+    /* Enable Alarm A interrupt in RTC */
+    RTC->CR |= RTC_CR_ALRAIE;
+
+    /* Re-enable write protection */
+    rtc_write_protection_enable();
+
+    /* Configure EXTI */
+    rtc_alarm_exti_config();
+
+    /* Configure NVIC */
+    rtc_alarm_nvic_config();
+
+    return true;
+}
+
+/**
+  * @brief  Set alarm A configuration
+  */
+bool rtc_set_alarm_a(const rtc_alarm_t* alarm) {
+    if (alarm == NULL) {
+        return false;
+    }
+
+    /* Disable write protection */
+    rtc_write_protection_disable();
+
+    /* Disable alarm first (required before configuration) */
+    RTC->CR &= ~RTC_CR_ALRAE;
+
+    /* Wait for alarm register to be writable */
+    if (!rtc_wait_for_alarm_write(RTC_ALARM_A_TIMEOUT)) {
+        rtc_write_protection_enable();
+        return false;
+    }
+
+    /* Configure alarm register */
+    uint32_t alrmar = 0;
+
+    /* Set time components */
+    alrmar |= (bin_to_bcd(alarm->second) << 0);
+    alrmar |= (bin_to_bcd(alarm->minute) << 8);
+    alrmar |= (bin_to_bcd(alarm->hour) << 16);
+
+    /* Configure mask bits */
+    if (alarm->mask & RTC_ALARM_MASK_SECONDS) alrmar |=(1 << 7);   /* MSK1 */
+    if (alarm->mask & RTC_ALARM_MASK_MINUTES) alrmar |= (1 << 15);  /* MSK2 */
+    if (alarm->mask & RTC_ALARM_MASK_HOURS) alrmar |= (1 << 23);    /* MSK3 */
+    if (alarm->mask & RTC_ALARM_MASK_DATE) alrmar |= (1 << 31);     /* MSK4 */
+
+    /* Configure weekday if specified */
+    if (alarm->weekday != 0) {
+        alrmar |= (1 << 24);  /* WDSEL = 1: compare with weekday */
+        alrmar |= ((alarm->weekday & 0x07) << 13);
+    }
+
+    /* Write to alarm register */
+    RTC->ALRMAR = alrmar;
+
+    /* Clear any pending alarm flag */
+    RTC->ISR &= ~RTC_ISR_ALRAF;
+
+    /* Re-enable write protection */
+    rtc_write_protection_enable();
+
+    /* Enable alarm if requested */
+    if (alarm->enabled) {
+        rtc_alarm_a_enable();
+    }
+
+    return true;
+}
+
+/**
+  * @brief  Enable alarm A
+  */
+void rtc_alarm_a_enable(void) {
+    rtc_write_protection_disable();
+
+    /* Enable alarm A */
+    RTC->CR |= RTC_CR_ALRAE;
+
+    /* Ensure interrupt is enabled */
+    RTC->CR |= RTC_CR_ALRAIE;
+
+    rtc_write_protection_enable();
+}
+
+/**
+  * @brief  Disable alarm A
+  */
+void rtc_alarm_a_disable(void) {
+    rtc_write_protection_disable();
+
+    /* Disable alarm A */
+    RTC->CR &= ~RTC_CR_ALRAE;
+
+    /* Keep interrupt enabled for future use */
+    // RTC->CR &= ~RTC_CR_ALRAIE;  /* Uncomment to disable interrupt too */
+
+    rtc_write_protection_enable();
+}
+
+/**
+  * @brief  Check if alarm A has triggered
+  */
+bool rtc_is_alarm_a_triggered(void) {
+    return (RTC->ISR & RTC_ISR_ALRAF) != 0;
+}
+
+/**
+  * @brief  Clear alarm A trigger flag
+  */
+void rtc_clear_alarm_a(void) {
+    rtc_write_protection_disable();
+    RTC->ISR &= ~RTC_ISR_ALRAF;
+    rtc_write_protection_enable();
+}
+
+/**
+  * @brief  RTC Alarm interrupt handler
+  */
+void rtc_alarm_irq_handler(void) {
+    /* Check if alarm A triggered */
+    if (RTC->ISR & RTC_ISR_ALRAF) {
+        /* Clear EXTI pending bit first (important!) */
+        EXTI->PR = (1U << RTC_ALARM_EXTI_LINE);
+
+        /* Clear RTC alarm flag */
+        rtc_clear_alarm_a();
+
+        /* Call application callback */
+        rtc_alarm_callback();
+    }
+}
+
+/**
+  * @brief  Default alarm callback (weak)
+  */
+__attribute__((weak)) void rtc_alarm_callback(void) {
+    /* Default implementation - do nothing
+       Override this in your application */
+}
+
+#endif /* RTC_ALARM_ENABLE */

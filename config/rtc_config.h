@@ -55,4 +55,30 @@
 #define RTC_INIT_TIMEOUT         10000
 #define RTC_SYNC_TIMEOUT         10000
 
+/*===================================================================
+  Alarm Configuration
+  ===================================================================*/
+/* Enable/disable alarm features */
+#define RTC_ALARM_ENABLE            1  /* Master enable for alarms */
+
+/* Alarm A Configuration */
+#define RTC_ALARM_A_ENABLE          1
+#define RTC_ALARM_A_TIMEOUT         100000  /* Timeout for alarm write */
+
+/* Interrupt Configuration */
+#define RTC_ALARM_EXTI_LINE         17      /* EXTI line 17 for RTC Alarm */
+#define RTC_ALARM_IRQn              RTC_Alarm_IRQn
+#define RTC_ALARM_IRQ_PRIORITY      5       /* NVIC priority (0-15) */
+
+/* Default alarm mask (what to match) */
+#define RTC_ALARM_MASK_SECONDS      0x01    /* Bit 0: Match seconds */
+#define RTC_ALARM_MASK_MINUTES      0x02    /* Bit 1: Match minutes */
+#define RTC_ALARM_MASK_HOURS        0x04    /* Bit 2: Match hours */
+#define RTC_ALARM_MASK_DATE         0x08    /* Bit 3: Match date/weekday */
+
+/* Common alarm masks */
+#define RTC_ALARM_MASK_HH_MM        0x09    /* Match hour and minute only */
+#define RTC_ALARM_MASK_HH_MM_SS     0x08    /* Match hour, minute, second */
+#define RTC_ALARM_MASK_ALL          0x0F    /* Match everything */
+
 #endif /* RTC_CONFIG_H */
