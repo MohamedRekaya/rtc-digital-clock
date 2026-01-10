@@ -701,3 +701,297 @@ __attribute__((weak)) void rtc_alarm_callback(void) {
 }
 
 #endif /* RTC_ALARM_ENABLE */
+
+/* Add these functions to your existing rtc.c file */
+
+#if RTC_PERIODIC_IRQ_ENABLE
+
+/* Private variables */
+static rtc_wakeup_config_t current_wakeup_config = {
+    .rate = RTC_PERIODIC_DISABLED,
+    .custom_interval = 0,
+    .clock_source = RTC_WAKEUP_CLOCK_CK_SPRE_17BITS,
+    .enabled = false
+};
+
+/* Private function prototypes */
+static void rtc_wakeup_exti_config(void);
+static void rtc_wakeup_nvic_config(void);
+static bool rtc_wait_for_wakeup_write(uint32_t timeout);
+static uint32_t rtc_calculate_wakeup_reload(rtc_periodic_rate_t rate, uint16_t custom_interval);
+
+/**
+  * @brief  Initialize periodic interrupts with default rate
+  * @param  rate: Interrupt rate
+  * @retval true: Success, false: Failure
+  */
+bool rtc_periodic_init(rtc_periodic_rate_t rate) {
+    rtc_wakeup_config_t config = {
+        .rate = rate,
+        .custom_interval = 0,
+        .clock_source = RTC_WAKEUP_CLOCK_SOURCE,
+        .enabled = true
+    };
+
+    return rtc_periodic_init_custom(&config);
+}
+
+/**
+  * @brief  Initialize periodic interrupts with custom configuration
+  * @param  config: Pointer to wakeup configuration structure
+  * @retval true: Success, false: Failure
+  */
+bool rtc_periodic_init_custom(const rtc_wakeup_config_t* config) {
+    if (config == NULL) {
+        return false;
+    }
+
+    /* Ensure RTC is initialized first */
+    if (!RTC_IS_INITIALIZED()) {
+        return false;
+    }
+
+    /* Save configuration */
+    current_wakeup_config = *config;
+
+    /* Disable write protection */
+    rtc_write_protection_disable();
+
+    /* Disable wakeup timer first */
+    RTC->CR &= ~RTC_CR_WUTE;
+
+    /* Wait for wakeup timer write access */
+    if (!rtc_wait_for_wakeup_write(RTC_WAKEUP_WRITE_TIMEOUT)) {
+        rtc_write_protection_enable();
+        return false;
+    }
+
+    /* Calculate and set wakeup reload value */
+    uint32_t reload_value = rtc_calculate_wakeup_reload(config->rate, config->custom_interval);
+    RTC->WUTR = reload_value;
+
+    /* Configure wakeup clock source */
+    RTC->CR &= ~RTC_CR_WUCKSEL;  /* Clear bits */
+    RTC->CR |= config->clock_source;
+
+    /* Enable wakeup timer interrupt */
+    RTC->CR |= RTC_CR_WUTIE;
+
+    /* Clear any pending wakeup flag */
+    RTC->ISR &= ~RTC_ISR_WUTF;
+
+    /* Re-enable write protection */
+    rtc_write_protection_enable();
+
+    /* Configure EXTI for wakeup interrupt */
+    rtc_wakeup_exti_config();
+
+    /* Configure NVIC */
+    rtc_wakeup_nvic_config();
+
+    /* Enable if requested */
+    if (config->enabled) {
+        rtc_periodic_enable();
+    }
+
+    return true;
+}
+
+/**
+  * @brief  Enable periodic interrupts
+  */
+void rtc_periodic_enable(void) {
+    rtc_write_protection_disable();
+    RTC->CR |= RTC_CR_WUTE;
+    current_wakeup_config.enabled = true;
+    rtc_write_protection_enable();
+}
+
+/**
+  * @brief  Disable periodic interrupts
+  */
+void rtc_periodic_disable(void) {
+    rtc_write_protection_disable();
+    RTC->CR &= ~RTC_CR_WUTE;
+    current_wakeup_config.enabled = false;
+    rtc_write_protection_enable();
+}
+
+/**
+  * @brief  Set new periodic rate
+  * @param  rate: New interrupt rate
+  */
+void rtc_periodic_set_rate(rtc_periodic_rate_t rate) {
+    current_wakeup_config.rate = rate;
+    current_wakeup_config.custom_interval = 0;
+
+    rtc_periodic_disable();
+
+    /* Reconfigure with new rate */
+    rtc_write_protection_disable();
+
+    /* Wait for write access */
+    rtc_wait_for_wakeup_write(RTC_WAKEUP_WRITE_TIMEOUT);
+
+    /* Calculate and set new reload value */
+    uint32_t reload_value = rtc_calculate_wakeup_reload(rate, 0);
+    RTC->WUTR = reload_value;
+
+    rtc_write_protection_enable();
+
+    /* Re-enable if not disabled */
+    if (rate != RTC_PERIODIC_DISABLED) {
+        rtc_periodic_enable();
+    }
+}
+
+/**
+  * @brief  Set custom interval for periodic interrupts
+  * @param  seconds: Interval in seconds (1-65535)
+  */
+void rtc_periodic_set_custom_interval(uint16_t seconds) {
+    if (seconds == 0 || seconds > 65535) return;
+
+    current_wakeup_config.rate = RTC_PERIODIC_EVERY_CUSTOM;
+    current_wakeup_config.custom_interval = seconds;
+
+    rtc_periodic_disable();
+
+    /* Reconfigure with new interval */
+    rtc_write_protection_disable();
+
+    /* Wait for write access */
+    rtc_wait_for_wakeup_write(RTC_WAKEUP_WRITE_TIMEOUT);
+
+    /* Set custom reload value (subtract 1 because 0 means 1 second) */
+    RTC->WUTR = seconds - 1;
+
+    rtc_write_protection_enable();
+
+    /* Re-enable */
+    rtc_periodic_enable();
+}
+
+/**
+  * @brief  Check if periodic interrupt triggered
+  * @retval true: Triggered, false: Not triggered
+  */
+bool rtc_is_periodic_triggered(void) {
+    return (RTC->ISR & RTC_ISR_WUTF) != 0;
+}
+
+/**
+  * @brief  Clear periodic interrupt flag
+  */
+void rtc_clear_periodic_flag(void) {
+    rtc_write_protection_disable();
+    RTC->ISR &= ~RTC_ISR_WUTF;
+    rtc_write_protection_enable();
+}
+
+/**
+  * @brief  Calculate wakeup reload value based on rate
+  */
+static uint32_t rtc_calculate_wakeup_reload(rtc_periodic_rate_t rate, uint16_t custom_interval) {
+    uint32_t reload_value = 0;
+
+    switch (rate) {
+        case RTC_PERIODIC_DISABLED:
+            reload_value = 0;
+            break;
+
+        case RTC_PERIODIC_EVERY_SECOND:
+            reload_value = 0;  /* 0 means 1 second with 1Hz clock */
+            break;
+
+        case RTC_PERIODIC_EVERY_10_SECONDS:
+            reload_value = 9;  /* 10 seconds (0-9 = 10 periods) */
+            break;
+
+        case RTC_PERIODIC_EVERY_30_SECONDS:
+            reload_value = 29; /* 30 seconds */
+            break;
+
+        case RTC_PERIODIC_EVERY_MINUTE:
+            reload_value = 59; /* 60 seconds */
+            break;
+
+        case RTC_PERIODIC_EVERY_HOUR:
+            reload_value = 3599; /* 3600 seconds (1 hour) */
+            break;
+
+        case RTC_PERIODIC_EVERY_CUSTOM:
+            reload_value = (custom_interval > 0) ? (custom_interval - 1) : 0;
+            break;
+
+        default:
+            reload_value = 0;  /* Default to 1 second */
+            break;
+    }
+
+    return reload_value;
+}
+
+/**
+  * @brief  Wait for wakeup timer write access
+  */
+static bool rtc_wait_for_wakeup_write(uint32_t timeout) {
+    /* Wait for WUTWF flag to be set (wakeup timer write allowed) */
+    while ((RTC->ISR & RTC_ISR_WUTWF) == 0) {
+        if (timeout-- == 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
+  * @brief  Configure EXTI for RTC wakeup interrupt
+  */
+static void rtc_wakeup_exti_config(void) {
+    /* Enable EXTI line for RTC Wakeup (Line 22) */
+    EXTI->IMR |= (1U << RTC_WAKEUP_EXTI_LINE);   /* Interrupt mask */
+    EXTI->RTSR |= (1U << RTC_WAKEUP_EXTI_LINE);  /* Rising trigger */
+
+    /* Clear any pending interrupt */
+    EXTI->PR = (1U << RTC_WAKEUP_EXTI_LINE);
+}
+
+/**
+  * @brief  Configure NVIC for RTC wakeup interrupt
+  */
+static void rtc_wakeup_nvic_config(void) {
+    /* Clear any pending interrupt first */
+    NVIC_ClearPendingIRQ(RTC_WKUP_IRQn);
+
+    /* Set priority and enable */
+    NVIC_SetPriority(RTC_WKUP_IRQn, RTC_PERIODIC_IRQ_PRIORITY);
+    NVIC_EnableIRQ(RTC_WKUP_IRQn);
+}
+
+/**
+  * @brief  RTC Wakeup interrupt handler (call this from IRQ handler)
+  */
+void rtc_wakeup_irq_handler(void) {
+    /* Check if wakeup timer triggered */
+    if (RTC->ISR & RTC_ISR_WUTF) {
+        /* Clear EXTI pending bit first */
+        EXTI->PR = (1U << RTC_WAKEUP_EXTI_LINE);
+
+        /* Clear RTC wakeup flag */
+        rtc_clear_periodic_flag();
+
+        /* Call application callback for LCD update */
+        rtc_periodic_callback();
+    }
+}
+
+/**
+  * @brief  Default periodic callback (weak - override in your application)
+  */
+__attribute__((weak)) void rtc_periodic_callback(void) {
+    /* Default implementation - do nothing
+       Override this in your main application to update LCD */
+}
+
+#endif /* RTC_PERIODIC_IRQ_ENABLE */

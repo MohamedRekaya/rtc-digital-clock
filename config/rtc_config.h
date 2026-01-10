@@ -81,4 +81,20 @@
 #define RTC_ALARM_MASK_HH_MM_SS     0x08    /* Match hour, minute, second */
 #define RTC_ALARM_MASK_ALL          0x0F    /* Match everything */
 
+/*=====================================================================
+ Periodic Interrupt
+ =====================================================================*/
+
+
+/* Periodic Interrupt Configuration */
+#define RTC_PERIODIC_IRQ_ENABLE         1   /* Enable periodic interrupts */
+#define RTC_PERIODIC_IRQ_PRIORITY       6   /* NVIC priority (lower number = higher priority) */
+
+/* Wakeup Timer Default Configuration */
+#define RTC_WAKEUP_CLOCK_SOURCE         RTC_WAKEUP_CLOCK_CK_SPRE_17BITS  /* 1Hz clock */
+#define RTC_WAKEUP_EXTI_LINE            22  /* EXTI Line 22 for RTC Wakeup */
+
+/* Timeout values */
+#define RTC_WAKEUP_WRITE_TIMEOUT        1000
+
 #endif /* RTC_CONFIG_H */

@@ -58,6 +58,38 @@ typedef struct {
     bool enabled;       /* Alarm enabled flag */
 } rtc_alarm_t;
 
+/*====================================================================
+	Periodic Interrupt Types
+=================================================================*/
+/* Wakeup Timer Period Selection */
+typedef enum {
+    RTC_PERIODIC_DISABLED = 0,
+    RTC_PERIODIC_EVERY_SECOND = 1,   /* Interrupt every second */
+    RTC_PERIODIC_EVERY_MINUTE = 2,   /* Interrupt every minute */
+    RTC_PERIODIC_EVERY_HOUR = 3,     /* Interrupt every hour */
+    RTC_PERIODIC_EVERY_10_SECONDS = 4, /* Interrupt every 10 seconds */
+    RTC_PERIODIC_EVERY_30_SECONDS = 5, /* Interrupt every 30 seconds */
+    RTC_PERIODIC_EVERY_CUSTOM = 6    /* Custom interval */
+} rtc_periodic_rate_t;
+
+/* Wakeup Timer Clock Selection */
+typedef enum {
+    RTC_WAKEUP_CLOCK_RTCCLK_DIV16 = 0,
+    RTC_WAKEUP_CLOCK_RTCCLK_DIV8 = 1,
+    RTC_WAKEUP_CLOCK_RTCCLK_DIV4 = 2,
+    RTC_WAKEUP_CLOCK_RTCCLK_DIV2 = 3,
+    RTC_WAKEUP_CLOCK_CK_SPRE_16BITS = 4,   /* 1Hz when prescalers are 0x7FFF/0xFF */
+    RTC_WAKEUP_CLOCK_CK_SPRE_17BITS = 5,   /* 1Hz (default) */
+} rtc_wakeup_clock_t;
+
+/* Wakeup Timer Structure */
+typedef struct {
+    rtc_periodic_rate_t rate;
+    uint16_t custom_interval;      /* For custom intervals in seconds */
+    rtc_wakeup_clock_t clock_source;
+    bool enabled;
+} rtc_wakeup_config_t;
+
 
 
 /*===================================================================
@@ -115,52 +147,68 @@ void rtc_get_date(rtc_date_t* date);
 
 #if RTC_ALARM_ENABLE
 
-/**
-  * @brief  Initialize RTC alarm interrupt system
-  * @retval true: Success, false: Failure
-  * @note   Must be called once before using alarms
-  */
-bool rtc_alarm_init(void);
+	/**
+	  * @brief  Initialize RTC alarm interrupt system
+	  * @retval true: Success, false: Failure
+	  * @note   Must be called once before using alarms
+	  */
+	bool rtc_alarm_init(void);
 
-/**
-  * @brief  Set alarm A configuration
-  * @param  alarm: Pointer to alarm configuration
-  * @retval true: Success, false: Failure
-  */
-bool rtc_set_alarm_a(const rtc_alarm_t* alarm);
+	/**
+	  * @brief  Set alarm A configuration
+	  * @param  alarm: Pointer to alarm configuration
+	  * @retval true: Success, false: Failure
+	  */
+	bool rtc_set_alarm_a(const rtc_alarm_t* alarm);
 
-/**
-  * @brief  Enable alarm A
-  */
-void rtc_alarm_a_enable(void);
+	/**
+	  * @brief  Enable alarm A
+	  */
+	void rtc_alarm_a_enable(void);
 
-/**
-  * @brief  Disable alarm A
-  */
-void rtc_alarm_a_disable(void);
+	/**
+	  * @brief  Disable alarm A
+	  */
+	void rtc_alarm_a_disable(void);
 
-/**
-  * @brief  Check if alarm A has triggered
-  * @retval true: Alarm triggered, false: Not triggered
-  */
-bool rtc_is_alarm_a_triggered(void);
+	/**
+	  * @brief  Check if alarm A has triggered
+	  * @retval true: Alarm triggered, false: Not triggered
+	  */
+	bool rtc_is_alarm_a_triggered(void);
 
-/**
-  * @brief  Clear alarm A trigger flag
-  */
-void rtc_clear_alarm_a(void);
+	/**
+	  * @brief  Clear alarm A trigger flag
+	  */
+	void rtc_clear_alarm_a(void);
 
-/**
-  * @brief  RTC Alarm interrupt handler (call from ISR)
-  */
-void rtc_alarm_irq_handler(void);
+	/**
+	  * @brief  RTC Alarm interrupt handler (call from ISR)
+	  */
+	void rtc_alarm_irq_handler(void);
 
-/**
-  * @brief  Application alarm callback (weak, override in application)
-  */
-void rtc_alarm_callback(void);
+	/**
+	  * @brief  Application alarm callback (weak, override in application)
+	  */
+	void rtc_alarm_callback(void);
 
 #endif /* RTC_ALARM_ENABLE */
+
+/*=============================================================
+ Interrupt Functions
+ ===============================================================*/
+#if RTC_PERIODIC_IRQ_ENABLE
+    bool rtc_periodic_init(rtc_periodic_rate_t rate);
+    bool rtc_periodic_init_custom(const rtc_wakeup_config_t* config);
+    void rtc_periodic_enable(void);
+    void rtc_periodic_disable(void);
+    void rtc_periodic_set_rate(rtc_periodic_rate_t rate);
+    void rtc_periodic_set_custom_interval(uint16_t seconds);
+    bool rtc_is_periodic_triggered(void);
+    void rtc_clear_periodic_flag(void);
+    void rtc_wakeup_irq_handler(void);
+    void rtc_periodic_callback(void);  /* User callback for LCD update */
+#endif
 
 
 

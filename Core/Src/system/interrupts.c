@@ -26,3 +26,10 @@ void RTC_Alarm_IRQHandler(void) {
 }
 
 #endif /* RTC_ALARM_ENABLE */
+
+/**
+  * @brief  RTC Wakeup interrupt handler
+  */
+void RTC_WKUP_IRQHandler(void) {
+    rtc_wakeup_irq_handler();
+}
