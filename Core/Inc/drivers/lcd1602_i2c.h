@@ -26,4 +26,20 @@ void lcd_write_string(const char* str);
 void lcd_backlight_on(void);
 void lcd_backlight_off(void);
 
+// Add these to your existing lcd1602_i2c.h:
+
+/* Custom Character Locations (CGRAM addresses 0-7) */
+#define LCD_CUSTOM_BELL      0
+#define LCD_CUSTOM_ALARM_ON  1
+#define LCD_CUSTOM_ALARM_OFF 2
+#define LCD_CUSTOM_CHECK     3
+#define LCD_CUSTOM_CROSS     4
+#define LCD_CUSTOM_CLOCK     5
+#define LCD_CUSTOM_CALENDAR  6
+#define LCD_CUSTOM_SETTINGS  7
+
+/* Public Function Declarations */
+void lcd_create_char(uint8_t location, const uint8_t charmap[8]);
+void lcd_write_custom_char(uint8_t location);
+
 #endif /* LCD1602_I2C_H */

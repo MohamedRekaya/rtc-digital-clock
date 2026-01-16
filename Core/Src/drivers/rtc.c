@@ -22,7 +22,6 @@
 /* Private Function Prototypes -----------------------------------------------*/
 
 static bool backup_domain_init(void);
-static void backup_domain_reset(void);
 static bool clock_source_init(void);
 static bool rtc_clock_init(void);
 static void rtc_write_protection_disable(void);
@@ -52,18 +51,12 @@ bool rtc_init(void) {
         return false;
     }
 
-
-
-
-
-
-
     /* Step 2: Initialize clock source */
     if (!clock_source_init()) {
         return false;
     }
 
-    /* Step 3: Initialize RTC clock */
+    /* Step 3: Initialize RTC clock(after a system reset, the RTC clock should be re-enabled, otherwise won't work) */
     if (!rtc_clock_init()) {
         return false;
     }
@@ -316,16 +309,7 @@ static bool backup_domain_init(void) {
     return true;
 }
 
-/**
-  * @brief  Reset backup domain (sets/clears BDRST bit)
-  * @note   Minimal version - assumes backup domain is already accessible
-  */
-static void backup_domain_reset(void) {
-    RCC->BDCR |= RCC_BDCR_BDRST;    /* Set reset */
-    for(volatile int i=0; i<1000; i++);  /* Short delay */
-    RCC->BDCR &= ~RCC_BDCR_BDRST;   /* Clear reset */
-    for(volatile int i=0; i<1000; i++);  /* Recovery delay */
-}
+
 
 /**
   * @brief  Initialize clock source

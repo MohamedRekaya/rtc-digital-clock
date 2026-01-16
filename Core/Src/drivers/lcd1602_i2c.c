@@ -96,3 +96,34 @@ void lcd_backlight_off(void) {
     backlight_state = 0;
     i2c_write_byte(LCD_I2C_ADDR, backlight_state);
 }
+
+
+
+/**
+  * @brief  Create custom character in LCD CGRAM
+  * @param  location: CGRAM address (0-7)
+  * @param  charmap: 8-byte array (5x8 pixels each)
+  */
+void lcd_create_char(uint8_t location, const uint8_t charmap[8]) {
+    if (location > 7) return;  /* Only 8 custom chars available */
+
+    /* Set CGRAM address: 0x40 + (location * 8) */
+    lcd_send_byte(0x40 | (location << 3), 0);
+
+    /* Send 8 bytes of character data */
+    for (uint8_t i = 0; i < 8; i++) {
+        lcd_send_byte(charmap[i], 1);
+    }
+
+    /* Return to DDRAM (display RAM) */
+    lcd_send_byte(0x80, 0);
+}
+
+/**
+  * @brief  Write custom character to current cursor position
+  * @param  location: CGRAM address (0-7)
+  */
+void lcd_write_custom_char(uint8_t location) {
+    if (location > 7) return;
+    lcd_send_byte(location, 1);
+}
