@@ -45,13 +45,18 @@ static bool rtc_wait_for_sync(uint32_t timeout);
 bool rtc_init(void) {
 
 
+
+
     /* Step 1: Initialize backup domain */
     if (!backup_domain_init()) {
         return false;
     }
 
-    /* RESET BACKUP DOMAIN */
-    backup_domain_reset();
+
+
+
+
+
 
     /* Step 2: Initialize clock source */
     if (!clock_source_init()) {
