@@ -92,8 +92,8 @@ typedef enum {
 
 /* Timing Configuration ------------------------------------------------------*/
 #define DEBOUNCE_TIME_MS       50    /*!< Button de-bounce time */
-#define LONG_PRESS_TIME_MS     2000  /*!< 2 seconds for long press */
-#define DOUBLE_CLICK_MAX_MS    1000   /*!< Max time between double clicks */
+#define LONG_PRESS_TIME_MS     1000  /*!< 2 seconds for long press */
+#define DOUBLE_CLICK_MAX_MS    500   /*!< Max time between double clicks */
 #define SYSTEM_TICK_MS         1     /*!< SysTick period */
 
 /* Interrupt Priorities ------------------------------------------------------*/

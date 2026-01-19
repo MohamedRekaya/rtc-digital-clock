@@ -11,9 +11,6 @@
 #include "systick.h"
 #include "stm32f4xx.h"
 
-extern void sleep_manager_wake(void);
-extern bool sleep_manager_is_sleeping(void);
-
 /* Private typedef -----------------------------------------------------------*/
 
 /**
@@ -23,7 +20,6 @@ typedef enum {
     BTN_STATE_IDLE = 0,
     BTN_STATE_DEBOUNCING,
     BTN_STATE_PRESSED,
-    BTN_STATE_RELEASED,
     BTN_STATE_LONG_PRESS
 } button_state_t;
 
@@ -32,11 +28,11 @@ typedef enum {
   */
 typedef struct {
     button_state_t state;           /*!< Current state */
-    bool last_raw_state;            /*!< Last GPIO reading */
     uint32_t state_enter_time;      /*!< When we entered current state */
     uint32_t press_start_time;      /*!< When button was first pressed */
     button_event_t pending_event;   /*!< Event to return */
-    bool click_pending;             /*!< First click detected */
+    uint8_t click_count;            /*!< Click counter for double-click */
+    uint32_t last_release_time;     /*!< Time of last release */
 } button_ctrl_t;
 
 /* Private variables ---------------------------------------------------------*/
@@ -46,9 +42,7 @@ static button_ctrl_t btn = {0};
 static void process_idle_state(void);
 static void process_debouncing_state(void);
 static void process_pressed_state(void);
-static void process_released_state(void);
-static void handle_press_detected(void);
-static void handle_release_detected(void);
+static void process_long_press_state(void);
 
 /* Exported functions --------------------------------------------------------*/
 
@@ -79,14 +73,14 @@ void button_init(void) {
 
     /* 7. Initialize control structure */
     btn.state = BTN_STATE_IDLE;
-    btn.last_raw_state = button_is_pressed_raw();
     btn.state_enter_time = systick_get_ticks();
     btn.pending_event = BUTTON_EVENT_NONE;
-    btn.click_pending = false;
+    btn.click_count = 0;
+    btn.last_release_time = 0;
 }
 
 bool button_is_pressed_raw(void) {
-	/* Active-high button: 1 = pressed, 0 = released */
+    /* Active-high button: 1 = pressed, 0 = released */
     return (GPIOA->IDR & GPIO_IDR_ID0) != 0;
 }
 
@@ -116,25 +110,9 @@ void button_update(void) {
             process_pressed_state();
             break;
 
-        case BTN_STATE_RELEASED:
-            process_released_state();
-            break;
-
         case BTN_STATE_LONG_PRESS:
-            /* Stay in long press until button is released */
-            if (!button_is_pressed_raw()) {
-                btn.state = BTN_STATE_DEBOUNCING;
-                btn.state_enter_time = current_time;
-            }
+            process_long_press_state();
             break;
-    }
-
-    /* Check for double-click timeout */
-    if (btn.click_pending) {
-        if (current_time - btn.state_enter_time >= DOUBLE_CLICK_MAX_MS) {
-            /* Timeout - it was just a single click */
-            btn.click_pending = false;
-        }
     }
 }
 
@@ -151,7 +129,6 @@ void button_exti_handler(void) {
             /* Press detected - start de-bouncing */
             btn.state = BTN_STATE_DEBOUNCING;
             btn.state_enter_time = systick_get_ticks();
-            btn.press_start_time = btn.state_enter_time;
         }
         else if (!pressed && (btn.state == BTN_STATE_PRESSED ||
                               btn.state == BTN_STATE_LONG_PRESS)) {
@@ -166,6 +143,16 @@ void button_exti_handler(void) {
 
 static void process_idle_state(void) {
     /* Nothing to do in idle state */
+
+    /* Check for double-click timeout */
+    uint32_t current_time = systick_get_ticks();
+    if (btn.click_count > 0 && (current_time - btn.last_release_time) > DOUBLE_CLICK_MAX_MS) {
+        /* Timeout - generate single click event */
+        if (btn.click_count == 1) {
+            btn.pending_event = BUTTON_EVENT_SHORT_PRESS;
+        }
+        btn.click_count = 0;
+    }
 }
 
 static void process_debouncing_state(void) {
@@ -176,16 +163,31 @@ static void process_debouncing_state(void) {
         bool pressed = button_is_pressed_raw();
 
         if (pressed) {
-            /* Press is stable */
+            /* Press is stable - enter PRESSED state */
             btn.state = BTN_STATE_PRESSED;
-            handle_press_detected();
+            btn.press_start_time = current_time;
         } else {
-            /* Release is stable */
-            btn.state = BTN_STATE_RELEASED;
-            handle_release_detected();
-        }
+            /* Release is stable - generate event and go to IDLE */
+            btn.state = BTN_STATE_IDLE;
+            btn.last_release_time = current_time;
 
-        btn.state_enter_time = current_time;
+            /* Determine what type of release this was */
+            if ((current_time - btn.press_start_time) >= LONG_PRESS_TIME_MS) {
+                /* Long press release */
+                btn.pending_event = BUTTON_EVENT_LONG_PRESS;
+                btn.click_count = 0;  // Long press cancels any pending clicks
+            } else {
+                /* Short press - count clicks */
+                btn.click_count++;
+
+                /* Check if this is a double-click */
+                if (btn.click_count == 2) {
+                    btn.pending_event = BUTTON_EVENT_DOUBLE_CLICK;
+                    btn.click_count = 0;
+                }
+                /* Single click will be generated after timeout in idle state */
+            }
+        }
     }
 }
 
@@ -196,8 +198,6 @@ static void process_pressed_state(void) {
     /* Check for long press */
     if (press_duration >= LONG_PRESS_TIME_MS) {
         btn.state = BTN_STATE_LONG_PRESS;
-        btn.pending_event = BUTTON_EVENT_LONG_PRESS;
-        btn.state_enter_time = current_time;
     }
 
     /* Check if button was released (via polling) */
@@ -207,34 +207,11 @@ static void process_pressed_state(void) {
     }
 }
 
-static void process_released_state(void) {
-    /* Release processing complete */
-    btn.state = BTN_STATE_IDLE;
-}
-
-static void handle_press_detected(void) {
-    btn.pending_event = BUTTON_EVENT_PRESSED;
-}
-
-static void handle_release_detected(void) {
-    uint32_t press_duration = systick_get_ticks() - btn.press_start_time;
-
-    if (press_duration < LONG_PRESS_TIME_MS) {
-        /* It was a short press */
-        if (btn.click_pending) {
-            /* Second click within time window = double click */
-            btn.pending_event = BUTTON_EVENT_DOUBLE_CLICK;
-            btn.click_pending = false;
-        } else {
-            /* First click - could be start of double click */
-            btn.pending_event = BUTTON_EVENT_RELEASED;
-            btn.click_pending = true;
-            btn.state_enter_time = systick_get_ticks();
-        }
-    } else {
-        /* It was a long press (already handled) */
-        btn.pending_event = BUTTON_EVENT_RELEASED;
-        btn.click_pending = false;
+static void process_long_press_state(void) {
+    /* Stay in long press until button is released */
+    if (!button_is_pressed_raw()) {
+        btn.state = BTN_STATE_DEBOUNCING;
+        btn.state_enter_time = systick_get_ticks();
     }
 }
 
