@@ -28,15 +28,18 @@ void lcd_backlight_off(void);
 
 
 
-/* Custom Character Locations (CGRAM addresses 0-7) */
-#define LCD_CUSTOM_BELL      0
-#define LCD_CUSTOM_ALARM_ON  1
-#define LCD_CUSTOM_ALARM_OFF 2
-#define LCD_CUSTOM_CHECK     3
-#define LCD_CUSTOM_CROSS     4
-#define LCD_CUSTOM_CLOCK     5
-#define LCD_CUSTOM_CALENDAR  6
-#define LCD_CUSTOM_SETTINGS  7
+// Custom character indices
+typedef enum {
+    LCD_CUSTOM_BELL,
+    LCD_CUSTOM_ALARM_ON,
+    LCD_CUSTOM_ALARM_OFF,
+    LCD_CUSTOM_CHECK,
+    LCD_CUSTOM_CROSS,
+    LCD_CUSTOM_CLOCK,
+    LCD_CUSTOM_CALENDAR,
+    LCD_CUSTOM_SETTINGS,
+    LCD_CUSTOM_COUNT
+} lcd_custom_char_t;
 
 /* Public Function Declarations */
 void lcd_create_char(uint8_t location, const uint8_t charmap[8]);
